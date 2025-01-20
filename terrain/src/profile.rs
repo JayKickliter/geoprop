@@ -70,7 +70,7 @@ pub struct ProfileBuilder<C: CoordFloat = f32> {
     /// is `false`).
     normalize: bool,
 
-    /// Earth radius, defaults to [MEAN_EARTH_RADIUS].
+    /// Earth radius, defaults to [`MEAN_EARTH_RADIUS`].
     earth_radius: C,
 }
 
