@@ -12,7 +12,7 @@ version     = "0.1.0"
 
 [features]
 default = []
-image = ["dep:image"]
+image = ["dep:image", "num-traits"]
 
 [dependencies]
 geo        = { workspace = true }

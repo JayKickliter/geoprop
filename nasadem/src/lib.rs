@@ -19,6 +19,8 @@ use geo::{
 #[cfg(feature = "image")]
 use image::{ImageBuffer, Luma};
 use memmap2::Mmap;
+#[cfg(feature = "image")]
+use num_traits::AsPrimitive;
 use std::{
     fs::File,
     io::BufReader,
@@ -319,21 +321,25 @@ impl Tile {
     /// `(pixel_value / 16::MAX) * (max_elev - min_elev) + min_elev`
     ///
     #[allow(clippy::cast_possible_truncation)]
-    pub fn to_image(&self) -> ImageBuffer<Luma<u16>, Vec<u16>> {
+    pub fn to_image<Pix>(&self) -> ImageBuffer<Luma<Pix>, Vec<Pix>>
+    where
+        Pix: image::Primitive + 'static,
+        f32: AsPrimitive<Pix> + From<Pix>,
+    {
         let (x_dim, y_dim) = self.dimensions();
         let mut img = ImageBuffer::new(x_dim as u32, y_dim as u32);
-        let min_elev = f32::from(self.min_elevation());
-        let max_elev = f32::from(self.max_elevation());
+        let min_elev: f32 = self.min_elevation().into();
+        let max_elev: f32 = self.max_elevation().into();
         let scale = |elev: i16| {
-            let elev = f32::from(elev);
-            (elev - min_elev) / (max_elev - min_elev) * f32::from(u16::MAX)
+            let elev: f32 = elev.into();
+            (elev - min_elev) / (max_elev - min_elev) * f32::from(Pix::max_value())
         };
         for sample in self.iter() {
             let (x, y) = sample.index();
             let elev = sample.elevation();
             let scaled_elev = scale(elev);
             #[allow(clippy::cast_sign_loss)]
-            img.put_pixel(x as u32, (y_dim - 1 - y) as u32, Luma([scaled_elev as u16]));
+            img.put_pixel(x as u32, (y_dim - 1 - y) as u32, Luma([scaled_elev.as_()]));
         }
         img
     }
