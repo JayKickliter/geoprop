@@ -12,12 +12,15 @@
 mod error;
 
 pub use crate::error::NasademError;
-use byteorder::{BigEndian as BE, ReadBytesExt};
 use geo::{
     geometry::{Coord, Polygon},
     polygon,
 };
+#[cfg(feature = "image")]
+use image::{ImageBuffer, Luma};
 use memmap2::Mmap;
+#[cfg(feature = "image")]
+use num_traits::AsPrimitive;
 use std::{
     fs::File,
     io::BufReader,
@@ -80,7 +83,7 @@ impl SampleStore {
                 let start = index * size_of::<u16>();
                 let end = start + size_of::<u16>();
                 let bytes = &mut &raw.as_ref()[start..end];
-                bytes.read_i16::<BE>().unwrap()
+                parse_sample(bytes)
             }
         }
     }
@@ -89,25 +92,17 @@ impl SampleStore {
     fn min(&self) -> i16 {
         match self {
             Self::Tombstone => 0,
-            Self::InMem(samples) => samples.iter().max().copied().unwrap(),
-            Self::MemMap(raw) => (*raw)
-                .chunks_exact(2)
-                .map(|mut bytes| (&mut bytes).read_i16::<BE>().unwrap())
-                .max()
-                .unwrap(),
+            Self::InMem(samples) => samples.iter().min().copied().unwrap(),
+            Self::MemMap(raw) => (*raw).chunks_exact(2).map(parse_sample).min().unwrap(),
         }
     }
 
     /// Returns the highest elevation sample in this data.
-    pub fn max(&self) -> i16 {
+    fn max(&self) -> i16 {
         match self {
             Self::Tombstone => 0,
             Self::InMem(samples) => samples.iter().max().copied().unwrap(),
-            Self::MemMap(raw) => (*raw)
-                .chunks_exact(2)
-                .map(|mut bytes| (&mut bytes).read_i16::<BE>().unwrap())
-                .max()
-                .unwrap(),
+            Self::MemMap(raw) => (*raw).chunks_exact(2).map(parse_sample).max().unwrap(),
         }
     }
 }
@@ -136,7 +131,7 @@ impl Tile {
             let mut sample_store = Vec::with_capacity(cols * rows);
 
             for _ in 0..(cols * rows) {
-                let sample = file.read_i16::<BE>()?;
+                let sample = read_sample(&mut file)?;
                 sample_store.push(sample);
             }
 
@@ -224,10 +219,15 @@ impl Tile {
         }
     }
 
+    /// Returns this tile's (x, y) dimensions.
+    pub fn dimensions(&self) -> (usize, usize) {
+        self.dimensions
+    }
+
     /// Returns the number of samples in this tile.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
-        let (x, y) = self.dimensions;
+        let (x, y) = self.dimensions();
         x * y
     }
 
@@ -261,9 +261,9 @@ impl Tile {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_possible_wrap)]
         if 0 <= idx_x
-            && idx_x < self.dimensions.0 as isize
+            && idx_x < self.dimensions().0 as isize
             && 0 <= idx_y
-            && idx_y < self.dimensions.1 as isize
+            && idx_y < self.dimensions().1 as isize
         {
             #[allow(clippy::cast_sign_loss)]
             let idx_1d = self.xy_to_linear_index((idx_x as usize, idx_y as usize));
@@ -281,9 +281,15 @@ impl Tile {
         self.samples.get_unchecked(idx_1d)
     }
 
+    /// Returns the sample at the given raster coordinates.
+    pub fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> i16 {
+        let idx_1d = self.xy_to_linear_index((x, y));
+        self.samples.get_unchecked(idx_1d)
+    }
+
     /// Returns and iterator over `self`'s grid squares.
     pub fn iter(&self) -> impl Iterator<Item = Sample<'_>> + '_ {
-        (0..(self.dimensions.0 * self.dimensions.1)).map(|index| Sample { tile: self, index })
+        (0..(self.dimensions().0 * self.dimensions().1)).map(|index| Sample { tile: self, index })
     }
 
     /// Returns this tile's outline as a polygon.
@@ -304,13 +310,43 @@ impl Tile {
     }
 }
 
+#[cfg(feature = "image")]
+impl Tile {
+    /// Returns an [`ImageBuffer`] of this tile.
+    ///
+    /// The image is scaled so that the lowest elevation is `0` and
+    /// the highest is `u16::NAX`.
+    ///
+    /// The original, pre-scaled, elevation can be comuputed with:
+    /// `(pixel_value / 16::MAX) * (max_elev - min_elev) + min_elev`
+    ///
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn to_image<Pix>(&self) -> ImageBuffer<Luma<Pix>, Vec<Pix>>
+    where
+        Pix: image::Primitive + 'static,
+        f32: AsPrimitive<Pix> + From<Pix>,
+    {
+        let (x_dim, y_dim) = self.dimensions();
+        let mut img = ImageBuffer::new(x_dim as u32, y_dim as u32);
+        let min_elev: f32 = self.min_elevation().into();
+        let max_elev: f32 = self.max_elevation().into();
+        let scale = |elev: i16| {
+            let elev: f32 = elev.into();
+            (elev - min_elev) / (max_elev - min_elev) * f32::from(Pix::max_value())
+        };
+        for sample in self.iter() {
+            let (x, y) = sample.index();
+            let elev = sample.elevation();
+            let scaled_elev = scale(elev);
+            #[allow(clippy::cast_sign_loss)]
+            img.put_pixel(x as u32, (y_dim - 1 - y) as u32, Luma([scaled_elev.as_()]));
+        }
+        img
+    }
+}
+
 /// Private API
 impl Tile {
-    fn get_xy(&self, (x, y): (usize, usize)) -> i16 {
-        let idx_1d = self.xy_to_linear_index((x, y));
-        self.samples.get_unchecked(idx_1d)
-    }
-
     fn coord_to_xy(&self, coord: Coord<C>) -> (isize, isize) {
         let c = ARCSEC_PER_DEG / C::from(self.resolution);
         // TODO: do we need to compensate for cell width. If so, does
@@ -326,13 +362,13 @@ impl Tile {
     }
 
     fn linear_index_to_xy(&self, idx: usize) -> (usize, usize) {
-        let y = idx / self.dimensions.0;
-        let x = idx % self.dimensions.1;
-        (x, self.dimensions.1 - 1 - y)
+        let y = idx / self.dimensions().0;
+        let x = idx % self.dimensions().1;
+        (x, self.dimensions().1 - 1 - y)
     }
 
     fn xy_to_linear_index(&self, (x, y): (usize, usize)) -> usize {
-        self.dimensions.0 * (self.dimensions.1 - y - 1) + x
+        self.dimensions().0 * (self.dimensions().1 - y - 1) + x
     }
 
     fn xy_to_polygon(&self, (x, y): (usize, usize)) -> Polygon<C> {
@@ -376,8 +412,11 @@ impl<'a> Sample<'a> {
     }
 
     pub fn polygon(&self) -> Polygon {
-        self.tile
-            .xy_to_polygon(self.tile.linear_index_to_xy(self.index))
+        self.tile.xy_to_polygon(self.index())
+    }
+
+    pub fn index(&self) -> (usize, usize) {
+        self.tile.linear_index_to_xy(self.index)
     }
 }
 
@@ -429,9 +468,7 @@ fn parse_sw_corner<P: AsRef<Path>>(path: P) -> Result<Coord<i16>, NasademError> 
 
 #[cfg(test)]
 mod _1_arc_second {
-    use super::{
-        extract_resolution, parse_sw_corner, BufReader, Coord, File, ReadBytesExt, Tile, BE,
-    };
+    use super::{extract_resolution, parse_sw_corner, read_sample, BufReader, Coord, File, Tile};
     use std::path::PathBuf;
 
     fn one_arcsecond_dir() -> PathBuf {
@@ -485,7 +522,7 @@ mod _1_arc_second {
         let raw_file_samples = {
             let mut file_data = Vec::new();
             let mut file = BufReader::new(File::open(&path).unwrap());
-            while let Ok(sample) = file.read_i16::<BE>() {
+            while let Ok(sample) = read_sample(&mut file) {
                 file_data.push(sample);
             }
             file_data
@@ -495,8 +532,14 @@ mod _1_arc_second {
         let mut idx = 0;
         for row in (0..3601).rev() {
             for col in 0..3601 {
-                assert_eq!(raw_file_samples[idx], parsed_tile.get_xy((col, row)));
-                assert_eq!(raw_file_samples[idx], mapped_tile.get_xy((col, row)));
+                assert_eq!(
+                    raw_file_samples[idx],
+                    parsed_tile.get_xy_unchecked((col, row))
+                );
+                assert_eq!(
+                    raw_file_samples[idx],
+                    mapped_tile.get_xy_unchecked((col, row))
+                );
                 idx += 1;
             }
         }
@@ -529,11 +572,32 @@ mod _1_arc_second {
     }
 }
 
+// Parses a big-endian i16 from a slice of two bytes.
+//
+// # Panics
+//
+// Panics if the provided slice is less than two bytes in lenght.
+fn parse_sample(src: &[u8]) -> i16 {
+    let mut sample_bytes = [0u8; 2];
+    sample_bytes.copy_from_slice(src);
+    i16::from_be_bytes(sample_bytes)
+}
+
+// Reads a big-endian i16 from a slice of two bytes.
+//
+// # Panics
+//
+// Panics on IO error.
+fn read_sample(src: &mut impl std::io::Read) -> std::io::Result<i16> {
+    let mut sample_bytes = [0u8; 2];
+    src.read_exact(&mut sample_bytes)?;
+    Ok(i16::from_be_bytes(sample_bytes))
+}
+
 #[cfg(test)]
 mod _3_arc_second {
     use super::{
-        extract_resolution, parse_sw_corner, BufReader, Coord, File, Polygon, ReadBytesExt, Tile,
-        BE,
+        extract_resolution, parse_sw_corner, read_sample, BufReader, Coord, File, Polygon, Tile,
     };
     use geo::geometry::LineString;
     use std::path::PathBuf;
@@ -590,7 +654,7 @@ mod _3_arc_second {
         let raw_file_samples = {
             let mut file_data = Vec::new();
             let mut raw = BufReader::new(File::open(path).unwrap());
-            while let Ok(sample) = raw.read_i16::<BE>() {
+            while let Ok(sample) = read_sample(&mut raw) {
                 file_data.push(sample);
             }
             file_data
@@ -598,7 +662,7 @@ mod _3_arc_second {
         let mut idx = 0;
         for row in (0..1201).rev() {
             for col in 0..1201 {
-                assert_eq!(raw_file_samples[idx], tile.get_xy((col, row)));
+                assert_eq!(raw_file_samples[idx], tile.get_xy_unchecked((col, row)));
                 idx += 1;
             }
         }

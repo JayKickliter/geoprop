@@ -100,7 +100,7 @@ pub struct Point2PointBuilder<T: CoordFloat = f32> {
     /// is `false`).
     normalize: bool,
 
-    /// Earth radius, defaults to [MEAN_EARTH_RADIUS].
+    /// Earth radius, defaults to [`MEAN_EARTH_RADIUS`].
     earth_radius: T,
 }
 

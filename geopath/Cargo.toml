@@ -11,15 +11,15 @@ repository  = "https://github.com/jaykickliter/geoprof"
 version     = "0.1.0"
 
 [dependencies]
-anyhow     = "1"
-clap       = { version = "4.4.2", features = ["derive"] }
-env_logger = "0.10"
+anyhow     = { workspace = true }
+clap       = { workspace = true }
+env_logger = { workspace = true }
 geo        = { workspace = true }
-itertools  = "0.10"
+itertools  = { workspace = true }
 num-traits = { workspace = true }
 propah     = { path = "../propah" }
-rfprop     = { git = "https://github.com/JayKickliter/Signal-Server", branch = "master" }
-serde      = { version = "1", features = ["derive"] }
-serde_json = "1"
+rfprop     = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
 terrain    = { path = "../terrain" }
-textplots  = "0.8.4"
+textplots  = { workspace = true }

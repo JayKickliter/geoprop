@@ -1,0 +1,10 @@
+[package]
+name = "demmit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+camino  = { workspace = true }
+clap    = { workspace = true }
+image   = { workspace = true }
+nasadem = { path = "../nasadem", features = ["image"] }

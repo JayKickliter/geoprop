@@ -16,15 +16,15 @@ address_sanitizer = []
 serde             = ["serde/derive"]
 
 [dependencies]
-cxx       = "1"
+cxx       = { workspace = true }
 serde     = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [build-dependencies]
-cxx-build = "1"
+cxx-build = { workspace = true }
 
 [dev-dependencies]
-anyhow  = "1"
+anyhow  = { workspace = true }
 clap    = { workspace = true }
 geo     = { workspace = true }
 terrain = { path = "../terrain" }

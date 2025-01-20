@@ -23,7 +23,7 @@ approx    = { workspace = true }
 criterion = { workspace = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
-tikv-jemallocator = "0.5"
+tikv-jemallocator = { workspace = true }
 
 [[bench]]
 name = "benchmarks"
