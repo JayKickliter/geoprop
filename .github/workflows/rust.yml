@@ -20,7 +20,7 @@ jobs:
           submodules: true
 
       - name: Setup | Rust toolchain
-        uses: dtolnay/rust-toolchain@1.70.0
+        uses: dtolnay/rust-toolchain@1.80.1
         with:
           components: clippy, rustfmt
 
