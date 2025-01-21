@@ -38,6 +38,9 @@ use std::{
 /// to `f32` has no effect.
 pub type C = f64;
 
+/// Bit representation of elevation samples.
+pub type Elev = i16;
+
 const ARCSEC_PER_DEG: C = 3600.0;
 const HALF_ARCSEC: C = 1.0 / (2.0 * 3600.0);
 
@@ -70,18 +73,18 @@ pub struct Tile {
 
 enum SampleStore {
     Tombstone,
-    InMem(Box<[i16]>),
+    InMem(Box<[Elev]>),
     MemMap(Mmap),
 }
 
 impl SampleStore {
-    fn get_linear_unchecked(&self, index: usize) -> i16 {
+    fn get_linear_unchecked(&self, index: usize) -> Elev {
         match self {
             Self::Tombstone => 0,
             Self::InMem(samples) => samples[index],
             Self::MemMap(raw) => {
-                let start = index * size_of::<i16>();
-                let end = start + size_of::<i16>();
+                let start = index * size_of::<Elev>();
+                let end = start + size_of::<Elev>();
                 let bytes = &mut &raw.as_ref()[start..end];
                 parse_sample(bytes)
             }
@@ -89,7 +92,7 @@ impl SampleStore {
     }
 
     /// Returns the lowest elevation sample in this data.
-    fn min(&self) -> i16 {
+    fn min(&self) -> Elev {
         match self {
             Self::Tombstone => 0,
             Self::InMem(samples) => samples.iter().min().copied().unwrap(),
@@ -98,7 +101,7 @@ impl SampleStore {
     }
 
     /// Returns the highest elevation sample in this data.
-    fn max(&self) -> i16 {
+    fn max(&self) -> Elev {
         match self {
             Self::Tombstone => 0,
             Self::InMem(samples) => samples.iter().max().copied().unwrap(),
@@ -139,8 +142,8 @@ impl Tile {
             SampleStore::InMem(sample_store.into_boxed_slice())
         };
 
-        let min_elevation = i16::MAX.into();
-        let max_elevation = i16::MAX.into();
+        let min_elevation = Elev::MAX.into();
+        let max_elevation = Elev::MAX.into();
 
         Ok(Self {
             sw_corner_center,
@@ -176,8 +179,8 @@ impl Tile {
             SampleStore::MemMap(mmap)
         };
 
-        let min_elevation = i16::MAX.into();
-        let max_elevation = i16::MAX.into();
+        let min_elevation = Elev::MAX.into();
+        let max_elevation = Elev::MAX.into();
 
         Ok(Self {
             sw_corner_center,
@@ -190,7 +193,7 @@ impl Tile {
         })
     }
 
-    pub fn tombstone(sw_corner: Coord<i16>) -> Self {
+    pub fn tombstone(sw_corner: Coord<Elev>) -> Self {
         let sw_corner_center = Coord {
             x: C::from(sw_corner.x),
             y: C::from(sw_corner.y),
@@ -205,8 +208,8 @@ impl Tile {
         };
 
         let samples = SampleStore::Tombstone;
-        let min_elevation = i16::MAX.into();
-        let max_elevation = i16::MAX.into();
+        let min_elevation = Elev::MAX.into();
+        let max_elevation = Elev::MAX.into();
 
         Self {
             sw_corner_center,
@@ -232,9 +235,9 @@ impl Tile {
     }
 
     /// Returns the lowest elevation sample in this tile.
-    pub fn min_elevation(&self) -> i16 {
+    pub fn min_elevation(&self) -> Elev {
         let mut min_elevation = self.min_elevation.load(Ordering::Relaxed);
-        if min_elevation == i16::MAX {
+        if min_elevation == Elev::MAX {
             min_elevation = self.samples.min();
             self.min_elevation.store(min_elevation, Ordering::SeqCst);
         };
@@ -242,9 +245,9 @@ impl Tile {
     }
 
     /// Returns the highest elevation sample in this tile.
-    pub fn max_elevation(&self) -> i16 {
+    pub fn max_elevation(&self) -> Elev {
         let mut max_elevation = self.max_elevation.load(Ordering::Relaxed);
-        if max_elevation == i16::MAX {
+        if max_elevation == Elev::MAX {
             max_elevation = self.samples.max();
             self.max_elevation.store(max_elevation, Ordering::SeqCst);
         };
@@ -257,7 +260,7 @@ impl Tile {
     }
 
     /// Returns the sample at the given geo coordinates.
-    pub fn get_geo(&self, coord: Coord<C>) -> Option<i16> {
+    pub fn get_geo(&self, coord: Coord<C>) -> Option<Elev> {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_possible_wrap)]
         if 0 <= idx_x
@@ -274,7 +277,7 @@ impl Tile {
     }
 
     /// Returns the sample at the given geo coordinates.
-    pub fn get_geo_unchecked(&self, coord: Coord<C>) -> i16 {
+    pub fn get_geo_unchecked(&self, coord: Coord<C>) -> Elev {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_sign_loss)]
         let idx_1d = self.xy_to_linear_index((idx_x as usize, idx_y as usize));
@@ -282,7 +285,7 @@ impl Tile {
     }
 
     /// Returns the sample at the given raster coordinates.
-    pub fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> i16 {
+    pub fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> Elev {
         let idx_1d = self.xy_to_linear_index((x, y));
         self.samples.get_linear_unchecked(idx_1d)
     }
@@ -330,7 +333,7 @@ impl Tile {
         let mut img = ImageBuffer::new(x_dim as u32, y_dim as u32);
         let min_elev: f32 = self.min_elevation().into();
         let max_elev: f32 = self.max_elevation().into();
-        let scale = |elev: i16| {
+        let scale = |elev: Elev| {
             let elev: f32 = elev.into();
             (elev - min_elev) / (max_elev - min_elev) * f32::from(Pix::max_value())
         };
@@ -407,7 +410,7 @@ pub struct Sample<'a> {
 }
 
 impl<'a> Sample<'a> {
-    pub fn elevation(&self) -> i16 {
+    pub fn elevation(&self) -> Elev {
         self.tile.samples.get_linear_unchecked(self.index)
     }
 
@@ -441,7 +444,7 @@ fn extract_resolution<P: AsRef<Path>>(path: P) -> Result<(u8, (usize, usize)), N
     }
 }
 
-fn parse_sw_corner<P: AsRef<Path>>(path: P) -> Result<Coord<i16>, NasademError> {
+fn parse_sw_corner<P: AsRef<Path>>(path: P) -> Result<Coord<Elev>, NasademError> {
     let mk_err = || NasademError::HgtName(path.as_ref().to_owned());
     let name = path
         .as_ref()
@@ -456,13 +459,13 @@ fn parse_sw_corner<P: AsRef<Path>>(path: P) -> Result<Coord<i16>, NasademError> 
         "S" | "s" => -1,
         _ => return Err(mk_err()),
     };
-    let lat = lat_sign * name[1..3].parse::<i16>().map_err(|_| mk_err())?;
+    let lat = lat_sign * name[1..3].parse::<Elev>().map_err(|_| mk_err())?;
     let lon_sign = match &name[3..4] {
         "E" | "e" => 1,
         "W" | "w" => -1,
         _ => return Err(mk_err()),
     };
-    let lon = lon_sign * name[4..7].parse::<i16>().map_err(|_| mk_err())?;
+    let lon = lon_sign * name[4..7].parse::<Elev>().map_err(|_| mk_err())?;
     Ok(Coord { x: lon, y: lat })
 }
 
@@ -572,26 +575,26 @@ mod _1_arc_second {
     }
 }
 
-// Parses a big-endian i16 from a slice of two bytes.
+// Parses a big-endian Elev from a slice of two bytes.
 //
 // # Panics
 //
 // Panics if the provided slice is less than two bytes in lenght.
-fn parse_sample(src: &[u8]) -> i16 {
+fn parse_sample(src: &[u8]) -> Elev {
     let mut sample_bytes = [0u8; 2];
     sample_bytes.copy_from_slice(src);
-    i16::from_be_bytes(sample_bytes)
+    Elev::from_be_bytes(sample_bytes)
 }
 
-// Reads a big-endian i16 from a slice of two bytes.
+// Reads a big-endian Elev from a slice of two bytes.
 //
 // # Panics
 //
 // Panics on IO error.
-fn read_sample(src: &mut impl std::io::Read) -> std::io::Result<i16> {
+fn read_sample(src: &mut impl std::io::Read) -> std::io::Result<Elev> {
     let mut sample_bytes = [0u8; 2];
     src.read_exact(&mut sample_bytes)?;
-    Ok(i16::from_be_bytes(sample_bytes))
+    Ok(Elev::from_be_bytes(sample_bytes))
 }
 
 #[cfg(test)]
