@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-//! NASADEM evelation (`.hgt`) file format.
+//! NASADEM elevation (`.hgt`) file format.
 //!
 //! # References
 //!
@@ -33,7 +33,7 @@ use std::{
 ///
 /// Note: this _could_ be a generic parameter, but doing so makes the
 /// library more complicated. While f32 vs f64 does make a measurable
-/// differnece when walking paths across tiles (see `Profile` type in
+/// difference when walking paths across tiles (see `Profile` type in
 /// the `terrain` crate), benchmarking shows that switching NASADEMs
 /// to `f32` has no effect.
 pub type C = f64;
@@ -44,12 +44,12 @@ const HALF_ARCSEC: C = 1.0 / (2.0 * 3600.0);
 pub struct Tile {
     /// Southwest corner of the tile.
     ///
-    /// Specificlly, the _center_ of the SW most sample of the tile.
+    /// Specifically, the _center_ of the SW most sample of the tile.
     sw_corner_center: Coord<C>,
 
     /// Northeast corner of the tile.
     ///
-    /// Specificlly, the _center_ of the NE most sample of the tile.
+    /// Specifically, the _center_ of the NE most sample of the tile.
     ne_corner_center: Coord<C>,
 
     /// Arcseconds per sample.
@@ -251,7 +251,7 @@ impl Tile {
         max_elevation
     }
 
-    /// Rreturns this tile's resolution in arcseconds per sample.
+    /// Returns this tile's resolution in arcseconds per sample.
     pub fn resolution(&self) -> u8 {
         self.resolution
     }
@@ -317,7 +317,7 @@ impl Tile {
     /// The image is scaled so that the lowest elevation is `0` and
     /// the highest is [`u16::MAX`].
     ///
-    /// The original, pre-scaled, elevation can be comuputed with:
+    /// The original, pre-scaled, elevation can be computed with:
     /// `(pixel_value / 16::MAX) * (max_elev - min_elev) + min_elev`
     ///
     #[allow(clippy::cast_possible_truncation)]
@@ -401,7 +401,7 @@ fn polygon(center: &Coord<C>, res: C) -> Polygon<C> {
 pub struct Sample<'a> {
     /// The parent [Tile] this grid square belongs to.
     tile: &'a Tile,
-    /// Index into parent's evelation data corresponding to tbhis grid
+    /// Index into parent's elevation data corresponding to this grid
     /// square.
     index: usize,
 }
