@@ -315,7 +315,7 @@ impl Tile {
     /// Returns an [`ImageBuffer`] of this tile.
     ///
     /// The image is scaled so that the lowest elevation is `0` and
-    /// the highest is `u16::NAX`.
+    /// the highest is [`u16::MAX`].
     ///
     /// The original, pre-scaled, elevation can be comuputed with:
     /// `(pixel_value / 16::MAX) * (max_elev - min_elev) + min_elev`
