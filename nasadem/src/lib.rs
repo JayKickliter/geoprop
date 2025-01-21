@@ -80,8 +80,8 @@ impl SampleStore {
             Self::Tombstone => 0,
             Self::InMem(samples) => samples[index],
             Self::MemMap(raw) => {
-                let start = index * size_of::<u16>();
-                let end = start + size_of::<u16>();
+                let start = index * size_of::<i16>();
+                let end = start + size_of::<i16>();
                 let bytes = &mut &raw.as_ref()[start..end];
                 parse_sample(bytes)
             }
