@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+// #![deny(missing_docs)]
 
 //! NASADEM elevation (`.hgt`) file format.
 //!
@@ -78,6 +78,7 @@ enum SampleStore {
 }
 
 impl SampleStore {
+    #[inline]
     fn get_linear_unchecked(&self, index: usize) -> Elev {
         match self {
             Self::Tombstone => 0,
@@ -260,7 +261,8 @@ impl Tile {
     }
 
     /// Returns the sample at the given geo coordinates.
-    pub fn get_geo(&self, coord: Coord<C>) -> Option<Elev> {
+    #[inline]
+    fn get_geo(&self, coord: Coord<C>) -> Option<Elev> {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_possible_wrap)]
         if 0 <= idx_x
@@ -277,7 +279,8 @@ impl Tile {
     }
 
     /// Returns the sample at the given geo coordinates.
-    pub fn get_geo_unchecked(&self, coord: Coord<C>) -> Elev {
+    #[inline]
+    fn get_geo_unchecked(&self, coord: Coord<C>) -> Elev {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_sign_loss)]
         let idx_1d = self.xy_to_linear_index((idx_x as usize, idx_y as usize));
@@ -285,7 +288,8 @@ impl Tile {
     }
 
     /// Returns the sample at the given raster coordinates.
-    pub fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> Elev {
+    #[inline]
+    fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> Elev {
         let idx_1d = self.xy_to_linear_index((x, y));
         self.samples.get_linear_unchecked(idx_1d)
     }
@@ -310,6 +314,40 @@ impl Tile {
             (x: w, y: n),
             (x: w, y: s),
         ]
+    }
+
+    /// Returns the elevation sample at `loc`, if contained in this
+    /// tile.
+    ///
+    /// `loc` can be one of:
+    ///
+    /// - `usize`: linear index of the elevation sample.
+    /// - `(usize, usize)`: (x, y) index of the elevation samples.
+    /// - `Coord`: an abosulute geographic location.
+    pub fn get<T>(&self, loc: T) -> Option<Elev>
+    where
+        Self: Get<T>,
+    {
+        <Self as Get<T>>::get(self, loc)
+    }
+
+    /// Returns the elevation sample at `loc`, if contained in this
+    /// tile.
+    ///
+    /// `loc` can be one of:
+    ///
+    /// - `usize`: linear index of the elevation sample.
+    /// - `(usize, usize)`: (x, y) index of the elevation samples.
+    /// - `Coord`: an abosulute geographic location.
+    ///
+    /// # Panics
+    ///
+    /// Panics if specified location is out of bounds of tile.
+    pub fn get_unchecked<T>(&self, loc: T) -> Elev
+    where
+        Self: Get<T>,
+    {
+        <Self as Get<T>>::get_unchecked(self, loc)
     }
 }
 
@@ -381,6 +419,57 @@ impl Tile {
             y: self.sw_corner_center.y + (y as C * C::from(self.resolution)) / ARCSEC_PER_DEG,
         };
         polygon(&center, C::from(self.resolution))
+    }
+}
+
+pub trait Get<Loc> {
+    fn get(&self, loc: Loc) -> Option<Elev>;
+
+    fn get_unchecked(&self, loc: Loc) -> Elev;
+}
+
+impl Get<usize> for Tile {
+    #[inline]
+    fn get(&self, loc: usize) -> Option<Elev> {
+        if loc < self.len() {
+            Some(self.samples.get_linear_unchecked(loc))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn get_unchecked(&self, loc: usize) -> Elev {
+        self.samples.get_linear_unchecked(loc)
+    }
+}
+
+impl Get<Coord> for Tile {
+    #[inline]
+    fn get(&self, loc: Coord) -> Option<Elev> {
+        self.get_geo(loc)
+    }
+
+    #[inline]
+    fn get_unchecked(&self, loc: Coord) -> Elev {
+        self.get_geo_unchecked(loc)
+    }
+}
+
+impl Get<(usize, usize)> for Tile {
+    #[inline]
+    fn get(&self, loc: (usize, usize)) -> Option<Elev> {
+        let (x, y) = loc;
+        if x * y < self.len() {
+            Some(self.get_xy_unchecked(loc))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn get_unchecked(&self, loc: (usize, usize)) -> Elev {
+        self.get_xy_unchecked(loc)
     }
 }
 

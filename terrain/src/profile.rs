@@ -170,11 +170,11 @@ where
                     x: point.0.x.into(),
                     y: point.0.y.into(),
                 };
-                if let Some(elevation) = tile.get_geo(coord) {
+                if let Some(elevation) = tile.get(coord) {
                     terrain.push(C::from(elevation).unwrap());
                 } else {
                     tile = tiles.get(coord)?;
-                    let elevation = tile.get_geo_unchecked(coord);
+                    let elevation = tile.get_unchecked(coord);
                     terrain.push(C::from(elevation).unwrap());
                 }
             }
