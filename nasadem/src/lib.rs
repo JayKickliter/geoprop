@@ -75,7 +75,7 @@ enum SampleStore {
 }
 
 impl SampleStore {
-    fn get_unchecked(&self, index: usize) -> i16 {
+    fn get_linear_unchecked(&self, index: usize) -> i16 {
         match self {
             Self::Tombstone => 0,
             Self::InMem(samples) => samples[index],
@@ -257,7 +257,7 @@ impl Tile {
     }
 
     /// Returns the sample at the given geo coordinates.
-    pub fn get(&self, coord: Coord<C>) -> Option<i16> {
+    pub fn get_geo(&self, coord: Coord<C>) -> Option<i16> {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_possible_wrap)]
         if 0 <= idx_x
@@ -267,24 +267,24 @@ impl Tile {
         {
             #[allow(clippy::cast_sign_loss)]
             let idx_1d = self.xy_to_linear_index((idx_x as usize, idx_y as usize));
-            Some(self.samples.get_unchecked(idx_1d))
+            Some(self.samples.get_linear_unchecked(idx_1d))
         } else {
             None
         }
     }
 
     /// Returns the sample at the given geo coordinates.
-    pub fn get_unchecked(&self, coord: Coord<C>) -> i16 {
+    pub fn get_geo_unchecked(&self, coord: Coord<C>) -> i16 {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_sign_loss)]
         let idx_1d = self.xy_to_linear_index((idx_x as usize, idx_y as usize));
-        self.samples.get_unchecked(idx_1d)
+        self.samples.get_linear_unchecked(idx_1d)
     }
 
     /// Returns the sample at the given raster coordinates.
     pub fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> i16 {
         let idx_1d = self.xy_to_linear_index((x, y));
-        self.samples.get_unchecked(idx_1d)
+        self.samples.get_linear_unchecked(idx_1d)
     }
 
     /// Returns and iterator over `self`'s grid squares.
@@ -408,7 +408,7 @@ pub struct Sample<'a> {
 
 impl<'a> Sample<'a> {
     pub fn elevation(&self) -> i16 {
-        self.tile.samples.get_unchecked(self.index)
+        self.tile.samples.get_linear_unchecked(self.index)
     }
 
     pub fn polygon(&self) -> Polygon {
@@ -506,13 +506,13 @@ mod _1_arc_second {
         path.push("N44W072.hgt");
         let tile = Tile::load(path).unwrap();
         // Assert coordinate a smidge north of tile returns None.
-        assert_eq!(tile.get(Coord { x: -71.5, y: 45.1 }), None);
+        assert_eq!(tile.get_geo(Coord { x: -71.5, y: 45.1 }), None);
         // Assert coordinate a smidge east of tile returns None.
-        assert_eq!(tile.get(Coord { x: -70.9, y: 44.5 }), None);
+        assert_eq!(tile.get_geo(Coord { x: -70.9, y: 44.5 }), None);
         // Assert coordinate a smidge south of tile returns None.
-        assert_eq!(tile.get(Coord { x: -71.5, y: 43.9 }), None);
+        assert_eq!(tile.get_geo(Coord { x: -71.5, y: 43.9 }), None);
         // Assert coordinate a smidge west of tile returns None.
-        assert_eq!(tile.get(Coord { x: -72.1, y: 44.5 }), None);
+        assert_eq!(tile.get_geo(Coord { x: -72.1, y: 44.5 }), None);
     }
 
     #[test]
@@ -554,7 +554,7 @@ mod _1_arc_second {
             y: 44.2705,
             x: -71.30325,
         };
-        assert_eq!(tile.get_unchecked(mt_washington), tile.max_elevation());
+        assert_eq!(tile.get_geo_unchecked(mt_washington), tile.max_elevation());
     }
 
     #[test]
@@ -637,13 +637,13 @@ mod _3_arc_second {
         path.push("N44W072.hgt");
         let tile = Tile::load(path).unwrap();
         // Assert coordinate a smidge north of tile returns None.
-        assert_eq!(tile.get(Coord { x: -71.5, y: 45.1 }), None);
+        assert_eq!(tile.get_geo(Coord { x: -71.5, y: 45.1 }), None);
         // Assert coordinate a smidge east of tile returns None.
-        assert_eq!(tile.get(Coord { x: -70.9, y: 44.5 }), None);
+        assert_eq!(tile.get_geo(Coord { x: -70.9, y: 44.5 }), None);
         // Assert coordinate a smidge south of tile returns None.
-        assert_eq!(tile.get(Coord { x: -71.5, y: 43.9 }), None);
+        assert_eq!(tile.get_geo(Coord { x: -71.5, y: 43.9 }), None);
         // Assert coordinate a smidge west of tile returns None.
-        assert_eq!(tile.get(Coord { x: -72.1, y: 44.5 }), None);
+        assert_eq!(tile.get_geo(Coord { x: -72.1, y: 44.5 }), None);
     }
 
     #[test]

@@ -154,7 +154,7 @@ mod tests {
     fn test_missing_tile_returns_0() {
         let tile_src = Tiles::new(crate::three_arcsecond_dir(), TileMode::MemMap).unwrap();
         let tile = tile_src.get(SOUTH_POLE).unwrap();
-        let elevation = tile.get(SOUTH_POLE).unwrap();
+        let elevation = tile.get_geo(SOUTH_POLE).unwrap();
         assert_eq!(elevation, 0);
     }
 
@@ -162,7 +162,7 @@ mod tests {
     fn test_get() {
         let tile_src = Tiles::new(crate::three_arcsecond_dir(), TileMode::MemMap).unwrap();
         let tile = tile_src.get(MT_WASHINGTON).unwrap();
-        assert_eq!(tile.get_unchecked(MT_WASHINGTON), 1903);
+        assert_eq!(tile.get_geo_unchecked(MT_WASHINGTON), 1903);
     }
 
     #[test]
