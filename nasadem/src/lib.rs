@@ -78,7 +78,6 @@ enum SampleStore {
 }
 
 impl SampleStore {
-    #[inline]
     fn get_linear_unchecked(&self, index: usize) -> Elev {
         match self {
             Self::Tombstone => 0,
@@ -261,7 +260,6 @@ impl Tile {
     }
 
     /// Returns the sample at the given geo coordinates.
-    #[inline]
     fn get_geo(&self, coord: Coord<C>) -> Option<Elev> {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_possible_wrap)]
@@ -279,7 +277,6 @@ impl Tile {
     }
 
     /// Returns the sample at the given geo coordinates.
-    #[inline]
     fn get_geo_unchecked(&self, coord: Coord<C>) -> Elev {
         let (idx_x, idx_y) = self.coord_to_xy(coord);
         #[allow(clippy::cast_sign_loss)]
@@ -288,7 +285,15 @@ impl Tile {
     }
 
     /// Returns the sample at the given raster coordinates.
-    #[inline]
+    fn get_xy(&self, (x, y): (usize, usize)) -> Option<Elev> {
+        if x * y < self.len() {
+            Some(self.get_xy_unchecked((x, y)))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the sample at the given raster coordinates.
     fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> Elev {
         let idx_1d = self.xy_to_linear_index((x, y));
         self.samples.get_linear_unchecked(idx_1d)
@@ -459,12 +464,7 @@ impl Get<Coord> for Tile {
 impl Get<(usize, usize)> for Tile {
     #[inline]
     fn get(&self, loc: (usize, usize)) -> Option<Elev> {
-        let (x, y) = loc;
-        if x * y < self.len() {
-            Some(self.get_xy_unchecked(loc))
-        } else {
-            None
-        }
+        self.get_xy(loc)
     }
 
     #[inline]
