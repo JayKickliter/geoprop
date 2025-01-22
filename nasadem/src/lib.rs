@@ -261,7 +261,7 @@ impl Tile {
 
     /// Returns the sample at the given geo coordinates.
     fn get_geo(&self, coord: Coord<C>) -> Option<Elev> {
-        let (idx_x, idx_y) = self.coord_to_xy(coord);
+        let (idx_x, idx_y) = self.geo_to_xy(coord);
         #[allow(clippy::cast_possible_wrap)]
         if 0 <= idx_x
             && idx_x < self.dimensions().0 as isize
@@ -269,7 +269,7 @@ impl Tile {
             && idx_y < self.dimensions().1 as isize
         {
             #[allow(clippy::cast_sign_loss)]
-            let idx_1d = self.xy_to_linear_index((idx_x as usize, idx_y as usize));
+            let idx_1d = self.xy_to_linear((idx_x as usize, idx_y as usize));
             Some(self.samples.get_linear_unchecked(idx_1d))
         } else {
             None
@@ -278,9 +278,9 @@ impl Tile {
 
     /// Returns the sample at the given geo coordinates.
     fn get_geo_unchecked(&self, coord: Coord<C>) -> Elev {
-        let (idx_x, idx_y) = self.coord_to_xy(coord);
+        let (idx_x, idx_y) = self.geo_to_xy(coord);
         #[allow(clippy::cast_sign_loss)]
-        let idx_1d = self.xy_to_linear_index((idx_x as usize, idx_y as usize));
+        let idx_1d = self.xy_to_linear((idx_x as usize, idx_y as usize));
         self.samples.get_linear_unchecked(idx_1d)
     }
 
@@ -295,7 +295,7 @@ impl Tile {
 
     /// Returns the sample at the given raster coordinates.
     fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> Elev {
-        let idx_1d = self.xy_to_linear_index((x, y));
+        let idx_1d = self.xy_to_linear((x, y));
         self.samples.get_linear_unchecked(idx_1d)
     }
 
@@ -321,38 +321,126 @@ impl Tile {
         ]
     }
 
-    /// Returns the elevation sample at `loc`, if contained in this
-    /// tile.
+    /// Retrieves the elevation sample from the tile at the specified
+    /// location.
     ///
-    /// `loc` can be one of:
+    /// The `loc` parameter defines the location to query and can be
+    /// one of the following:
     ///
-    /// - `usize`: linear index of the elevation sample.
-    /// - `(usize, usize)`: (x, y) index of the elevation samples.
-    /// - `Coord`: an abosulute geographic location.
+    /// - `usize`: The linear index of the elevation sample in the data array.
+    /// - `(usize, usize)`: A 2D index representing the (x, y) position of the elevation sample.
+    /// - `Geo`: A geographic coordinate specifying an absolute location.
+    ///
+    /// # Returns:
+    ///
+    /// - `Some(Elev)` if the specified location is valid and contained within the tile.
+    /// - `None` if the location is outside the bounds of the tile or invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use geo::Coord;
+    /// use nasadem::Tile;
+    ///
+    /// let tile_path = format!(
+    ///     "{}/../data/nasadem/1arcsecond/N38W105.hgt",
+    ///     env!("CARGO_MANIFEST_DIR")
+    /// );
+    ///
+    /// let tile = Tile::load(tile_path).unwrap();
+    ///
+    /// // Using a linear index.
+    /// assert_eq!(tile.get(2_707_976), Some(3772));
+    ///
+    /// // Using relative (x, y) coordinates.
+    /// assert_eq!(tile.get((24, 2848)), Some(3772));
+    ///
+    /// // Using absolute geographic coordinates.
+    /// assert_eq!(
+    ///     tile.get(Coord {
+    ///         x: -104.993_472_222_222_22,
+    ///         y: 38.790_972_222_222_22,
+    ///     }),
+    ///     Some(3772)
+    /// );
+    /// ```
+    #[inline]
     pub fn get<T>(&self, loc: T) -> Option<Elev>
     where
-        Self: Get<T>,
+        TileIndex: From<T>,
     {
-        <Self as Get<T>>::get(self, loc)
+        let idx = TileIndex::from(loc);
+        match idx {
+            TileIndex::Linear(idx) => {
+                if idx < self.len() {
+                    Some(self.samples.get_linear_unchecked(idx))
+                } else {
+                    None
+                }
+            }
+            TileIndex::XY(idx) => self.get_xy(idx),
+            TileIndex::Geo(idx) => self.get_geo(idx),
+        }
     }
 
-    /// Returns the elevation sample at `loc`, if contained in this
-    /// tile.
+    /// Retrieves the elevation sample from the tile at the specified
+    /// location.
     ///
-    /// `loc` can be one of:
+    /// The `loc` parameter defines the location to query and can be
+    /// one of the following:
     ///
-    /// - `usize`: linear index of the elevation sample.
-    /// - `(usize, usize)`: (x, y) index of the elevation samples.
-    /// - `Coord`: an abosulute geographic location.
+    /// - `usize`: The linear index of the elevation sample in the
+    ///   data array.
+    /// - `(usize, usize)`: A 2D index representing the (x, y)
+    ///   position of the elevation sample.
+    /// - `Coord`: A geographic coordinate specifying an absolute
+    ///   location.
     ///
     /// # Panics
     ///
-    /// Panics if specified location is out of bounds of tile.
+    /// This method relies raw slice indexing. It is the caller's
+    /// responsibility to ensure that the location is valid and within
+    /// the bounds of the tile. Passing an invalid location will
+    /// result in a panic.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use geo::Coord;
+    /// use nasadem::Tile;
+    ///
+    /// let tile_path = format!(
+    ///     "{}/../data/nasadem/1arcsecond/N38W105.hgt",
+    ///     env!("CARGO_MANIFEST_DIR")
+    /// );
+    ///
+    /// let tile = Tile::load(tile_path).unwrap();
+    ///
+    /// // Using a linear index.
+    /// assert_eq!(tile.get_unchecked(2_707_976), 3772);
+    ///
+    /// // Using relative (x, y) coordinates.
+    /// assert_eq!(tile.get_unchecked((24, 2848)), 3772);
+    ///
+    /// // Using absolute geographic coordinates.
+    /// assert_eq!(
+    ///     tile.get_unchecked(Coord {
+    ///         x: -104.993_472_222_222_22,
+    ///         y: 38.790_972_222_222_22,
+    ///     }),
+    ///     3772
+    /// );
+    /// ```
     pub fn get_unchecked<T>(&self, loc: T) -> Elev
     where
-        Self: Get<T>,
+        TileIndex: From<T>,
     {
-        <Self as Get<T>>::get_unchecked(self, loc)
+        let idx = TileIndex::from(loc);
+        match idx {
+            TileIndex::Linear(idx) => self.samples.get_linear_unchecked(idx),
+            TileIndex::XY(idx) => self.get_xy_unchecked(idx),
+            TileIndex::Geo(idx) => self.get_geo_unchecked(idx),
+        }
     }
 }
 
@@ -381,7 +469,7 @@ impl Tile {
             (elev - min_elev) / (max_elev - min_elev) * f32::from(Pix::max_value())
         };
         for sample in self.iter() {
-            let (x, y) = sample.index();
+            let (x, y) = sample.xy();
             let elev = sample.elevation();
             let scaled_elev = scale(elev);
             #[allow(clippy::cast_sign_loss)]
@@ -393,7 +481,7 @@ impl Tile {
 
 /// Private API
 impl Tile {
-    fn coord_to_xy(&self, coord: Coord<C>) -> (isize, isize) {
+    fn geo_to_xy(&self, coord: Coord<C>) -> (isize, isize) {
         let c = ARCSEC_PER_DEG / C::from(self.resolution);
         // TODO: do we need to compensate for cell width. If so, does
         //       the following accomplish that? It seems to in the
@@ -407,13 +495,27 @@ impl Tile {
         (x, y)
     }
 
-    fn linear_index_to_xy(&self, idx: usize) -> (usize, usize) {
+    fn xy_to_geo(&self, (x, y): (usize, usize)) -> Coord<C> {
+        let c = ARCSEC_PER_DEG / C::from(self.resolution);
+        // TODO: do we need to compensate for cell width. If so, does
+        //       the following accomplish that? It seems to in the
+        //       Mt. Washington test.
+        let sample_center_compensation = 1. / (c * 2.);
+        let cc = sample_center_compensation;
+        #[allow(clippy::cast_precision_loss)]
+        let lon = (x as C / c) - cc + self.sw_corner_center.x;
+        #[allow(clippy::cast_precision_loss)]
+        let lat = (y as C / c) - cc + self.sw_corner_center.y;
+        Coord { x: lon, y: lat }
+    }
+
+    fn linear_to_xy(&self, idx: usize) -> (usize, usize) {
         let y = idx / self.dimensions().0;
         let x = idx % self.dimensions().1;
         (x, self.dimensions().1 - 1 - y)
     }
 
-    fn xy_to_linear_index(&self, (x, y): (usize, usize)) -> usize {
+    fn xy_to_linear(&self, (x, y): (usize, usize)) -> usize {
         self.dimensions().0 * (self.dimensions().1 - y - 1) + x
     }
 
@@ -427,49 +529,30 @@ impl Tile {
     }
 }
 
-pub trait Get<Loc> {
-    fn get(&self, loc: Loc) -> Option<Elev>;
-
-    fn get_unchecked(&self, loc: Loc) -> Elev;
+pub enum TileIndex {
+    Linear(usize),
+    XY((usize, usize)),
+    Geo(Coord),
 }
 
-impl Get<usize> for Tile {
+impl From<usize> for TileIndex {
     #[inline]
-    fn get(&self, loc: usize) -> Option<Elev> {
-        if loc < self.len() {
-            Some(self.samples.get_linear_unchecked(loc))
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    fn get_unchecked(&self, loc: usize) -> Elev {
-        self.samples.get_linear_unchecked(loc)
+    fn from(other: usize) -> TileIndex {
+        TileIndex::Linear(other)
     }
 }
 
-impl Get<Coord> for Tile {
+impl From<(usize, usize)> for TileIndex {
     #[inline]
-    fn get(&self, loc: Coord) -> Option<Elev> {
-        self.get_geo(loc)
-    }
-
-    #[inline]
-    fn get_unchecked(&self, loc: Coord) -> Elev {
-        self.get_geo_unchecked(loc)
+    fn from(other: (usize, usize)) -> TileIndex {
+        TileIndex::XY(other)
     }
 }
 
-impl Get<(usize, usize)> for Tile {
+impl From<Coord> for TileIndex {
     #[inline]
-    fn get(&self, loc: (usize, usize)) -> Option<Elev> {
-        self.get_xy(loc)
-    }
-
-    #[inline]
-    fn get_unchecked(&self, loc: (usize, usize)) -> Elev {
-        self.get_xy_unchecked(loc)
+    fn from(other: Coord) -> TileIndex {
+        TileIndex::Geo(other)
     }
 }
 
@@ -499,16 +582,29 @@ pub struct Sample<'a> {
 }
 
 impl<'a> Sample<'a> {
+    #[inline]
     pub fn elevation(&self) -> Elev {
         self.tile.samples.get_linear_unchecked(self.index)
     }
 
+    #[inline]
     pub fn polygon(&self) -> Polygon {
-        self.tile.xy_to_polygon(self.index())
+        self.tile.xy_to_polygon(self.xy())
     }
 
-    pub fn index(&self) -> (usize, usize) {
-        self.tile.linear_index_to_xy(self.index)
+    #[inline]
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    #[inline]
+    pub fn xy(&self) -> (usize, usize) {
+        self.tile.linear_to_xy(self.index)
+    }
+
+    #[inline]
+    pub fn geo(&self) -> Coord<C> {
+        self.tile.xy_to_geo(self.xy())
     }
 }
 
@@ -656,8 +752,8 @@ mod _1_arc_second {
         let tile = Tile::load(&path).unwrap();
         for row in (0..3601).rev() {
             for col in 0..3601 {
-                let d1 = tile.xy_to_linear_index((col, row));
-                let roundtrip_2d = tile.linear_index_to_xy(d1);
+                let d1 = tile.xy_to_linear((col, row));
+                let roundtrip_2d = tile.linear_to_xy(d1);
                 assert_eq!((col, row), roundtrip_2d);
             }
         }
@@ -778,12 +874,17 @@ mod _3_arc_second {
     fn test_tile_index_conversions() {
         let mut path = three_arcsecond_dir();
         path.push("N44W072.hgt");
-        let parsed_tile = Tile::load(&path).unwrap();
+        let tile = Tile::load(&path).unwrap();
         for row in (0..1201).rev() {
             for col in 0..1201 {
-                let d1 = parsed_tile.xy_to_linear_index((col, row));
-                let roundtrip_2d = parsed_tile.linear_index_to_xy(d1);
-                assert_eq!((col, row), roundtrip_2d);
+                let linear = tile.xy_to_linear((col, row));
+                let roundtrip_xy = tile.linear_to_xy(linear);
+                assert_eq!((col, row), roundtrip_xy);
+                let geo = tile.xy_to_geo((col, row));
+                let roundtrip_xy = tile.geo_to_xy(geo);
+                #[allow(clippy::cast_possible_wrap)]
+                let xy = (col as isize, row as isize);
+                assert_eq!(xy, roundtrip_xy);
             }
         }
     }
