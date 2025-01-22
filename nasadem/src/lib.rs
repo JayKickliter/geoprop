@@ -353,7 +353,7 @@ impl Tile {
     /// assert_eq!(tile.get(2_707_976), Some(3772));
     ///
     /// // Using relative (x, y) coordinates.
-    /// assert_eq!(tile.get((24, 2848)), Some(3772));
+    /// assert_eq!(tile.get((24, 752)), Some(3772));
     ///
     /// // Using absolute geographic coordinates.
     /// assert_eq!(
@@ -420,7 +420,7 @@ impl Tile {
     /// assert_eq!(tile.get_unchecked(2_707_976), 3772);
     ///
     /// // Using relative (x, y) coordinates.
-    /// assert_eq!(tile.get_unchecked((24, 2848)), 3772);
+    /// assert_eq!(tile.get_unchecked((24, 752)), 3772);
     ///
     /// // Using absolute geographic coordinates.
     /// assert_eq!(
@@ -473,7 +473,7 @@ impl Tile {
             let elev = sample.elevation();
             let scaled_elev = scale(elev);
             #[allow(clippy::cast_sign_loss)]
-            img.put_pixel(x as u32, (y_dim - 1 - y) as u32, Luma([scaled_elev.as_()]));
+            img.put_pixel(x as u32, y as u32, Luma([scaled_elev.as_()]));
         }
         img
     }
@@ -490,33 +490,30 @@ impl Tile {
         let cc = sample_center_compensation;
         #[allow(clippy::cast_possible_truncation)]
         let x = ((coord.x - self.sw_corner_center.x + cc) * c) as isize;
-        #[allow(clippy::cast_possible_truncation)]
-        let y = ((coord.y - self.sw_corner_center.y + cc) * c) as isize;
+        #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+        let y = self.dimensions.1 as isize
+            - 1
+            - ((coord.y - self.sw_corner_center.y + cc) * c) as isize;
         (x, y)
     }
 
     fn xy_to_geo(&self, (x, y): (usize, usize)) -> Coord<C> {
         let c = ARCSEC_PER_DEG / C::from(self.resolution);
-        // TODO: do we need to compensate for cell width. If so, does
-        //       the following accomplish that? It seems to in the
-        //       Mt. Washington test.
-        let sample_center_compensation = 1. / (c * 2.);
-        let cc = sample_center_compensation;
         #[allow(clippy::cast_precision_loss)]
-        let lon = (x as C / c) - cc + self.sw_corner_center.x;
+        let lon = (x as C / c) + self.sw_corner_center.x;
         #[allow(clippy::cast_precision_loss)]
-        let lat = (y as C / c) - cc + self.sw_corner_center.y;
+        let lat = ((self.dimensions.1 - y - 1) as C / c) + self.sw_corner_center.y;
         Coord { x: lon, y: lat }
     }
 
     fn linear_to_xy(&self, idx: usize) -> (usize, usize) {
         let y = idx / self.dimensions().0;
         let x = idx % self.dimensions().1;
-        (x, self.dimensions().1 - 1 - y)
+        (x, y)
     }
 
     fn xy_to_linear(&self, (x, y): (usize, usize)) -> usize {
-        self.dimensions().0 * (self.dimensions().1 - y - 1) + x
+        self.dimensions().0 * y + x
     }
 
     fn xy_to_polygon(&self, (x, y): (usize, usize)) -> Polygon<C> {
@@ -654,6 +651,28 @@ fn parse_sw_corner<P: AsRef<Path>>(path: P) -> Result<Coord<Elev>, NasademError>
     Ok(Coord { x: lon, y: lat })
 }
 
+// Parses a big-endian Elev from a slice of two bytes.
+//
+// # Panics
+//
+// Panics if the provided slice is less than two bytes in lenght.
+fn parse_sample(src: &[u8]) -> Elev {
+    let mut sample_bytes = [0u8; 2];
+    sample_bytes.copy_from_slice(src);
+    Elev::from_be_bytes(sample_bytes)
+}
+
+// Reads a big-endian Elev from a slice of two bytes.
+//
+// # Panics
+//
+// Panics on IO error.
+fn read_sample(src: &mut impl std::io::Read) -> std::io::Result<Elev> {
+    let mut sample_bytes = [0u8; 2];
+    src.read_exact(&mut sample_bytes)?;
+    Ok(Elev::from_be_bytes(sample_bytes))
+}
+
 #[cfg(test)]
 mod _1_arc_second {
     use super::{extract_resolution, parse_sw_corner, read_sample, BufReader, Coord, File, Tile};
@@ -718,7 +737,7 @@ mod _1_arc_second {
         let parsed_tile = Tile::load(&path).unwrap();
         let mapped_tile = Tile::memmap(&path).unwrap();
         let mut idx = 0;
-        for row in (0..3601).rev() {
+        for row in 0..3601 {
             for col in 0..3601 {
                 assert_eq!(
                     raw_file_samples[idx],
@@ -750,36 +769,36 @@ mod _1_arc_second {
         let mut path = one_arcsecond_dir();
         path.push("N44W072.hgt");
         let tile = Tile::load(&path).unwrap();
-        for row in (0..3601).rev() {
+
+        assert_eq!((0, 0), tile.linear_to_xy(0));
+        assert_eq!((0, 0), tile.geo_to_xy(Coord { x: -72.0, y: 45.0 }));
+        assert_eq!((3600, 0), tile.geo_to_xy(Coord { x: -71.0, y: 45.0 }));
+        assert_eq!((3600, 0), tile.linear_to_xy(3600));
+        assert_eq!((0, 1), tile.linear_to_xy(3601));
+        assert_eq!((0, 3600), tile.geo_to_xy(Coord { x: -72.0, y: 44.0 }));
+        assert_eq!((3600, 3600), tile.geo_to_xy(Coord { x: -71.0, y: 44.0 }));
+
+        assert_eq!(Coord { x: -71.0, y: 45.0 }, tile.xy_to_geo((3600, 0)));
+        assert_eq!(Coord { x: -72.0, y: 45.0 }, tile.xy_to_geo((0, 0)));
+        assert_eq!(Coord { x: -72.0, y: 44.0 }, tile.xy_to_geo((0, 3600)));
+        assert_eq!(
+            Coord { x: -72.0, y: 45.0 },
+            tile.xy_to_geo(tile.linear_to_xy(0))
+        );
+
+        for row in 0..3601 {
             for col in 0..3601 {
-                let d1 = tile.xy_to_linear((col, row));
-                let roundtrip_2d = tile.linear_to_xy(d1);
-                assert_eq!((col, row), roundtrip_2d);
+                let linear = tile.xy_to_linear((col, row));
+                let roundtrip_xy = tile.linear_to_xy(linear);
+                assert_eq!((col, row), roundtrip_xy);
+                let geo = tile.xy_to_geo((col, row));
+                let roundtrip_xy = tile.geo_to_xy(geo);
+                #[allow(clippy::cast_possible_wrap)]
+                let xy = (col as isize, row as isize);
+                assert_eq!(xy, roundtrip_xy);
             }
         }
     }
-}
-
-// Parses a big-endian Elev from a slice of two bytes.
-//
-// # Panics
-//
-// Panics if the provided slice is less than two bytes in lenght.
-fn parse_sample(src: &[u8]) -> Elev {
-    let mut sample_bytes = [0u8; 2];
-    sample_bytes.copy_from_slice(src);
-    Elev::from_be_bytes(sample_bytes)
-}
-
-// Reads a big-endian Elev from a slice of two bytes.
-//
-// # Panics
-//
-// Panics on IO error.
-fn read_sample(src: &mut impl std::io::Read) -> std::io::Result<Elev> {
-    let mut sample_bytes = [0u8; 2];
-    src.read_exact(&mut sample_bytes)?;
-    Ok(Elev::from_be_bytes(sample_bytes))
 }
 
 #[cfg(test)]
@@ -848,7 +867,7 @@ mod _3_arc_second {
             file_data
         };
         let mut idx = 0;
-        for row in (0..1201).rev() {
+        for row in 0..1201 {
             for col in 0..1201 {
                 assert_eq!(raw_file_samples[idx], tile.get_xy_unchecked((col, row)));
                 idx += 1;
@@ -875,7 +894,24 @@ mod _3_arc_second {
         let mut path = three_arcsecond_dir();
         path.push("N44W072.hgt");
         let tile = Tile::load(&path).unwrap();
-        for row in (0..1201).rev() {
+
+        assert_eq!((0, 0), tile.linear_to_xy(0));
+        assert_eq!((0, 0), tile.geo_to_xy(Coord { x: -72.0, y: 45.0 }));
+        assert_eq!((1200, 0), tile.geo_to_xy(Coord { x: -71.0, y: 45.0 }));
+        assert_eq!((1200, 0), tile.linear_to_xy(1200));
+        assert_eq!((0, 1), tile.linear_to_xy(1201));
+        assert_eq!((0, 1200), tile.geo_to_xy(Coord { x: -72.0, y: 44.0 }));
+        assert_eq!((1200, 1200), tile.geo_to_xy(Coord { x: -71.0, y: 44.0 }));
+
+        assert_eq!(Coord { x: -71.0, y: 45.0 }, tile.xy_to_geo((1200, 0)));
+        assert_eq!(Coord { x: -72.0, y: 45.0 }, tile.xy_to_geo((0, 0)));
+        assert_eq!(Coord { x: -72.0, y: 44.0 }, tile.xy_to_geo((0, 1200)));
+        assert_eq!(
+            Coord { x: -72.0, y: 45.0 },
+            tile.xy_to_geo(tile.linear_to_xy(0))
+        );
+
+        for row in 0..1201 {
             for col in 0..1201 {
                 let linear = tile.xy_to_linear((col, row));
                 let roundtrip_xy = tile.linear_to_xy(linear);
