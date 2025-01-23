@@ -324,17 +324,23 @@ impl Tile {
     /// Retrieves the elevation sample from the tile at the specified
     /// location.
     ///
-    /// The `loc` parameter defines the location to query and can be
+    /// The `idx` parameter specifies the location to query and can be
     /// one of the following:
     ///
-    /// - `usize`: The linear index of the elevation sample in the data array.
-    /// - `(usize, usize)`: A 2D index representing the (x, y) position of the elevation sample.
-    /// - `Geo`: A geographic coordinate specifying an absolute location.
+    /// - `usize`: The linear index of the elevation sample in the
+    ///    underlying data array, where `0` corresponds to the
+    ///    northwest corner of the tile.
+    /// - `(usize, usize)`: A 2D index representing the `(x, y)`
+    ///    position of the elevation sample, where `(0, 0)`
+    ///    corresponds to the northwest corner of the tile.
+    /// - `Geo`: A geographic coordinate specifying an absolute
+    ///    location in latitude and longitude.
     ///
-    /// # Returns:
+    /// # Returns
     ///
-    /// - `Some(Elev)` if the specified location is valid and contained within the tile.
-    /// - `None` if the location is outside the bounds of the tile or invalid.
+    /// - `Some(Elev)` if the location is valid and contained within
+    ///    the tile.
+    /// - `None` if the location is out of bounds or invalid.
     ///
     /// # Examples
     ///
@@ -364,7 +370,6 @@ impl Tile {
     ///     Some(3772)
     /// );
     /// ```
-    #[inline]
     pub fn get<T>(&self, loc: T) -> Option<Elev>
     where
         TileIndex: From<T>,
@@ -386,15 +391,17 @@ impl Tile {
     /// Retrieves the elevation sample from the tile at the specified
     /// location.
     ///
-    /// The `loc` parameter defines the location to query and can be
+    /// The `idx` parameter specifies the location to query and can be
     /// one of the following:
     ///
     /// - `usize`: The linear index of the elevation sample in the
-    ///   data array.
-    /// - `(usize, usize)`: A 2D index representing the (x, y)
-    ///   position of the elevation sample.
-    /// - `Coord`: A geographic coordinate specifying an absolute
-    ///   location.
+    ///    underlying data array, where `0` corresponds to the
+    ///    northwest corner of the tile.
+    /// - `(usize, usize)`: A 2D index representing the `(x, y)`
+    ///    position of the elevation sample, where `(0, 0)`
+    ///    corresponds to the northwest corner of the tile.
+    /// - `Geo`: A geographic coordinate specifying an absolute
+    ///    location in latitude and longitude.
     ///
     /// # Panics
     ///
@@ -526,9 +533,15 @@ impl Tile {
     }
 }
 
+/// `TileIndex` represents the different ways of indexing into a
+/// [`Tile`].
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TileIndex {
+    /// Plain old offset into the flat sample array.
     Linear(usize),
+    /// Cartesean coordinates, where (0, 0) is the northwest corner.
     XY((usize, usize)),
+    /// Absolute geographic coordinates.
     Geo(Coord),
 }
 
