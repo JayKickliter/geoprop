@@ -22,6 +22,7 @@ use memmap2::Mmap;
 #[cfg(feature = "image")]
 use num_traits::AsPrimitive;
 use std::{
+    fmt,
     fs::File,
     io::BufReader,
     mem::size_of,
@@ -533,6 +534,30 @@ impl Tile {
     }
 }
 
+impl fmt::Debug for Tile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // force lazy evaluation of max and min elevation.
+        let _ = self.max_elevation();
+        let _ = self.min_elevation();
+        f.debug_struct("Tile")
+            .field("sw_corner_center", &self.sw_corner_center)
+            .field("ne_corner_center", &self.ne_corner_center)
+            .field("resolution", &self.resolution)
+            .field("dimensions", &self.dimensions)
+            .field("min_elev", &self.min_elevation)
+            .field("max_elevation", &self.max_elevation)
+            .field(
+                "samples",
+                &match self.samples {
+                    SampleStore::Tombstone => "Tombstone",
+                    SampleStore::InMem(_) => "InMem",
+                    SampleStore::MemMap(_) => "MemMap",
+                },
+            )
+            .finish()
+    }
+}
+
 /// `TileIndex` represents the different ways of indexing into a
 /// [`Tile`].
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -892,14 +917,14 @@ mod _3_arc_second {
     // fn test_tile_geo_index() {
     //     let mut path = three_arcsecond_dir();
     //     path.push("N44W072.hgt");
-    //     let tile = Tile::parse(&path).unwrap();
+    //     let tile = Tile::load(&path).unwrap();
     //     let mt_washington = Coord {
     //         y: 44.2705,
     //         x: -71.30325,
     //     };
     //     // TODO: is there an error in indexing or is the 3 arc-second
     //     //       dataset smeared?
-    //     assert_eq!(tile.get_coord(mt_washington), tile.max_elevation());
+    //     assert_eq!(tile.get(mt_washington), Some(tile.max_elevation()));
     // }
 
     #[test]
