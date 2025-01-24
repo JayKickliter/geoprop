@@ -1,0 +1,494 @@
+use crate::{
+    geo::{polygon, Coord, Polygon},
+    store::SampleStore,
+    util, Elev, NasademError, Sample, ARCSEC_PER_DEG, C, HALF_ARCSEC,
+};
+use memmap2::Mmap;
+use std::{
+    fmt,
+    fs::File,
+    io::BufReader,
+    path::Path,
+    sync::atomic::{AtomicI16, Ordering},
+};
+
+pub struct Tile {
+    /// Southwest corner of the tile.
+    ///
+    /// Specifically, the _center_ of the SW most sample of the tile.
+    sw_corner_center: Coord<C>,
+
+    /// Northeast corner of the tile.
+    ///
+    /// Specifically, the _center_ of the NE most sample of the tile.
+    ne_corner_center: Coord<C>,
+
+    /// Arcseconds per sample.
+    resolution: u8,
+
+    /// Number of (rows, columns) in this tile.
+    dimensions: (usize, usize),
+
+    /// Lowest elevation sample in this tile.
+    min_elevation: AtomicI16,
+
+    /// Highest elevation sample in this tile.
+    max_elevation: AtomicI16,
+
+    /// Elevation samples.
+    pub(crate) samples: SampleStore,
+}
+
+impl Tile {
+    /// Returns a Tile read into memory from the file at `path`.
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, NasademError> {
+        let (resolution, dimensions @ (cols, rows)) = util::extract_resolution(&path)?;
+        let sw_corner_center = {
+            let Coord { x, y } = util::parse_sw_corner(&path)?;
+            Coord {
+                x: C::from(x),
+                y: C::from(y),
+            }
+        };
+
+        #[allow(clippy::cast_precision_loss)]
+        let ne_corner_center = Coord {
+            y: sw_corner_center.y + (dimensions.0 as C * C::from(resolution)) / ARCSEC_PER_DEG,
+            x: sw_corner_center.x + (dimensions.1 as C * C::from(resolution)) / ARCSEC_PER_DEG,
+        };
+
+        let mut file = BufReader::new(File::open(path)?);
+
+        let samples = {
+            let mut sample_store = Vec::with_capacity(cols * rows);
+
+            for _ in 0..(cols * rows) {
+                let sample = util::read_sample(&mut file)?;
+                sample_store.push(sample);
+            }
+
+            assert_eq!(sample_store.len(), dimensions.0 * dimensions.1);
+            SampleStore::InMem(sample_store.into_boxed_slice())
+        };
+
+        let min_elevation = Elev::MAX.into();
+        let max_elevation = Elev::MAX.into();
+
+        Ok(Self {
+            sw_corner_center,
+            ne_corner_center,
+            resolution,
+            dimensions,
+            min_elevation,
+            max_elevation,
+            samples,
+        })
+    }
+
+    /// Returns a Tile using the memory-mapped file as storage.
+    pub fn memmap<P: AsRef<Path>>(path: P) -> Result<Self, NasademError> {
+        let (resolution, dimensions @ (cols, rows)) = util::extract_resolution(&path)?;
+        let sw_corner_center = {
+            let Coord { x, y } = util::parse_sw_corner(&path)?;
+            Coord {
+                x: C::from(x),
+                y: C::from(y),
+            }
+        };
+
+        #[allow(clippy::cast_precision_loss)]
+        let ne_corner_center = Coord {
+            y: sw_corner_center.y + (cols as C * C::from(resolution)) / ARCSEC_PER_DEG,
+            x: sw_corner_center.x + (rows as C * C::from(resolution)) / ARCSEC_PER_DEG,
+        };
+
+        let samples = {
+            let file = File::open(path)?;
+            let mmap = unsafe { Mmap::map(&file)? };
+            SampleStore::MemMap(mmap)
+        };
+
+        let min_elevation = Elev::MAX.into();
+        let max_elevation = Elev::MAX.into();
+
+        Ok(Self {
+            sw_corner_center,
+            ne_corner_center,
+            resolution,
+            dimensions,
+            min_elevation,
+            max_elevation,
+            samples,
+        })
+    }
+
+    pub fn tombstone(sw_corner: Coord<Elev>) -> Self {
+        let sw_corner_center = Coord {
+            x: C::from(sw_corner.x),
+            y: C::from(sw_corner.y),
+        };
+
+        let (resolution, dimensions) = (3, (1201, 1201));
+
+        #[allow(clippy::cast_precision_loss)]
+        let ne_corner_center = Coord {
+            y: sw_corner_center.y as C + (dimensions.0 as C * C::from(resolution)) / ARCSEC_PER_DEG,
+            x: sw_corner_center.x as C + (dimensions.1 as C * C::from(resolution)) / ARCSEC_PER_DEG,
+        };
+
+        let samples = SampleStore::Tombstone;
+        let min_elevation = Elev::MAX.into();
+        let max_elevation = Elev::MAX.into();
+
+        Self {
+            sw_corner_center,
+            ne_corner_center,
+            resolution,
+            dimensions,
+            min_elevation,
+            max_elevation,
+            samples,
+        }
+    }
+
+    /// Returns this tile's (x, y) dimensions.
+    pub fn dimensions(&self) -> (usize, usize) {
+        self.dimensions
+    }
+
+    /// Returns the number of samples in this tile.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        let (x, y) = self.dimensions();
+        x * y
+    }
+
+    /// Returns the lowest elevation sample in this tile.
+    pub fn min_elevation(&self) -> Elev {
+        let mut min_elevation = self.min_elevation.load(Ordering::Relaxed);
+        if min_elevation == Elev::MAX {
+            min_elevation = self.samples.min();
+            self.min_elevation.store(min_elevation, Ordering::SeqCst);
+        };
+        min_elevation
+    }
+
+    /// Returns the highest elevation sample in this tile.
+    pub fn max_elevation(&self) -> Elev {
+        let mut max_elevation = self.max_elevation.load(Ordering::Relaxed);
+        if max_elevation == Elev::MAX {
+            max_elevation = self.samples.max();
+            self.max_elevation.store(max_elevation, Ordering::SeqCst);
+        };
+        max_elevation
+    }
+
+    /// Returns this tile's resolution in arcseconds per sample.
+    pub fn resolution(&self) -> u8 {
+        self.resolution
+    }
+
+    /// Returns and iterator over `self`'s grid squares.
+    pub fn iter(&self) -> impl Iterator<Item = Sample<'_>> + '_ {
+        (0..(self.dimensions().0 * self.dimensions().1)).map(|index| Sample { tile: self, index })
+    }
+
+    /// Returns this tile's outline as a polygon.
+    pub fn polygon(&self) -> Polygon {
+        let delta = C::from(self.resolution) * HALF_ARCSEC;
+        let n = self.ne_corner_center.y + delta;
+        let e = self.sw_corner_center.x + delta;
+        let s = self.sw_corner_center.y - delta;
+        let w = self.sw_corner_center.x - delta;
+
+        polygon![
+            (x: w, y: s),
+            (x: e, y: s),
+            (x: e, y: n),
+            (x: w, y: n),
+            (x: w, y: s),
+        ]
+    }
+
+    /// Retrieves the elevation sample from the tile at the specified
+    /// location.
+    ///
+    /// The `idx` parameter specifies the location to query and can be
+    /// one of the following:
+    ///
+    /// - `usize`: The linear index of the elevation sample in the
+    ///    underlying data array, where `0` corresponds to the
+    ///    northwest corner of the tile.
+    /// - `(usize, usize)`: A 2D index representing the `(x, y)`
+    ///    position of the elevation sample, where `(0, 0)`
+    ///    corresponds to the northwest corner of the tile.
+    /// - `Geo`: A geographic coordinate specifying an absolute
+    ///    location in latitude and longitude.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(Elev)` if the location is valid and contained within
+    ///    the tile.
+    /// - `None` if the location is out of bounds or invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use geo::Coord;
+    /// use nasadem::Tile;
+    ///
+    /// let tile_path = format!(
+    ///     "{}/../data/nasadem/1arcsecond/N38W105.hgt",
+    ///     env!("CARGO_MANIFEST_DIR")
+    /// );
+    ///
+    /// let tile = Tile::load(tile_path).unwrap();
+    ///
+    /// // Using a linear index.
+    /// assert_eq!(tile.get(2_707_976), Some(3772));
+    ///
+    /// // Using relative (x, y) coordinates.
+    /// assert_eq!(tile.get((24, 752)), Some(3772));
+    ///
+    /// // Using absolute geographic coordinates.
+    /// assert_eq!(
+    ///     tile.get(Coord {
+    ///         x: -104.993_472_222_222_22,
+    ///         y: 38.790_972_222_222_22,
+    ///     }),
+    ///     Some(3772)
+    /// );
+    /// ```
+    pub fn get<T>(&self, loc: T) -> Option<Elev>
+    where
+        TileIndex: From<T>,
+    {
+        let idx = TileIndex::from(loc);
+        match idx {
+            TileIndex::Linear(idx) => {
+                if idx < self.len() {
+                    Some(self.samples.get_linear_unchecked(idx))
+                } else {
+                    None
+                }
+            }
+            TileIndex::XY(idx) => self.get_xy(idx),
+            TileIndex::Geo(idx) => self.get_geo(idx),
+        }
+    }
+
+    /// Retrieves the elevation sample from the tile at the specified
+    /// location.
+    ///
+    /// The `idx` parameter specifies the location to query and can be
+    /// one of the following:
+    ///
+    /// - `usize`: The linear index of the elevation sample in the
+    ///    underlying data array, where `0` corresponds to the
+    ///    northwest corner of the tile.
+    /// - `(usize, usize)`: A 2D index representing the `(x, y)`
+    ///    position of the elevation sample, where `(0, 0)`
+    ///    corresponds to the northwest corner of the tile.
+    /// - `Geo`: A geographic coordinate specifying an absolute
+    ///    location in latitude and longitude.
+    ///
+    /// # Panics
+    ///
+    /// This method relies raw slice indexing. It is the caller's
+    /// responsibility to ensure that the location is valid and within
+    /// the bounds of the tile. Passing an invalid location will
+    /// result in a panic.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use geo::Coord;
+    /// use nasadem::Tile;
+    ///
+    /// let tile_path = format!(
+    ///     "{}/../data/nasadem/1arcsecond/N38W105.hgt",
+    ///     env!("CARGO_MANIFEST_DIR")
+    /// );
+    ///
+    /// let tile = Tile::load(tile_path).unwrap();
+    ///
+    /// // Using a linear index.
+    /// assert_eq!(tile.get_unchecked(2_707_976), 3772);
+    ///
+    /// // Using relative (x, y) coordinates.
+    /// assert_eq!(tile.get_unchecked((24, 752)), 3772);
+    ///
+    /// // Using absolute geographic coordinates.
+    /// assert_eq!(
+    ///     tile.get_unchecked(Coord {
+    ///         x: -104.993_472_222_222_22,
+    ///         y: 38.790_972_222_222_22,
+    ///     }),
+    ///     3772
+    /// );
+    /// ```
+    pub fn get_unchecked<T>(&self, loc: T) -> Elev
+    where
+        TileIndex: From<T>,
+    {
+        let idx = TileIndex::from(loc);
+        match idx {
+            TileIndex::Linear(idx) => self.samples.get_linear_unchecked(idx),
+            TileIndex::XY(idx) => self.get_xy_unchecked(idx),
+            TileIndex::Geo(idx) => self.get_geo_unchecked(idx),
+        }
+    }
+}
+
+/// Private API
+impl Tile {
+    /// Returns the sample at the given geo coordinates.
+    pub(crate) fn get_geo(&self, coord: Coord<C>) -> Option<Elev> {
+        let (idx_x, idx_y) = self.geo_to_xy(coord);
+        #[allow(clippy::cast_possible_wrap)]
+        if 0 <= idx_x
+            && idx_x < self.dimensions().0 as isize
+            && 0 <= idx_y
+            && idx_y < self.dimensions().1 as isize
+        {
+            #[allow(clippy::cast_sign_loss)]
+            let idx_1d = self.xy_to_linear((idx_x as usize, idx_y as usize));
+            Some(self.samples.get_linear_unchecked(idx_1d))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the sample at the given geo coordinates.
+    pub(crate) fn get_geo_unchecked(&self, coord: Coord<C>) -> Elev {
+        let (idx_x, idx_y) = self.geo_to_xy(coord);
+        #[allow(clippy::cast_sign_loss)]
+        let idx_1d = self.xy_to_linear((idx_x as usize, idx_y as usize));
+        self.samples.get_linear_unchecked(idx_1d)
+    }
+
+    /// Returns the sample at the given raster coordinates.
+    pub(crate) fn get_xy(&self, (x, y): (usize, usize)) -> Option<Elev> {
+        if x * y < self.len() {
+            Some(self.get_xy_unchecked((x, y)))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the sample at the given raster coordinates.
+    pub(crate) fn get_xy_unchecked(&self, (x, y): (usize, usize)) -> Elev {
+        let idx_1d = self.xy_to_linear((x, y));
+        self.samples.get_linear_unchecked(idx_1d)
+    }
+
+    pub(crate) fn geo_to_xy(&self, coord: Coord<C>) -> (isize, isize) {
+        let c = ARCSEC_PER_DEG / C::from(self.resolution);
+        // TODO: do we need to compensate for cell width. If so, does
+        //       the following accomplish that? It seems to in the
+        //       Mt. Washington test.
+        let sample_center_compensation = 1. / (c * 2.);
+        let cc = sample_center_compensation;
+        #[allow(clippy::cast_possible_truncation)]
+        let x = ((coord.x - self.sw_corner_center.x + cc) * c) as isize;
+        #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+        let y = self.dimensions.1 as isize
+            - 1
+            - ((coord.y - self.sw_corner_center.y + cc) * c) as isize;
+        (x, y)
+    }
+
+    pub(crate) fn xy_to_geo(&self, (x, y): (usize, usize)) -> Coord<C> {
+        let c = ARCSEC_PER_DEG / C::from(self.resolution);
+        #[allow(clippy::cast_precision_loss)]
+        let lon = (x as C / c) + self.sw_corner_center.x;
+        #[allow(clippy::cast_precision_loss)]
+        let lat = ((self.dimensions.1 - y - 1) as C / c) + self.sw_corner_center.y;
+        Coord { x: lon, y: lat }
+    }
+
+    pub(crate) fn linear_to_xy(&self, idx: usize) -> (usize, usize) {
+        let y = idx / self.dimensions().0;
+        let x = idx % self.dimensions().1;
+        (x, y)
+    }
+
+    pub(crate) fn xy_to_linear(&self, (x, y): (usize, usize)) -> usize {
+        self.dimensions().0 * y + x
+    }
+
+    pub(crate) fn xy_to_polygon(&self, (x, y): (usize, usize)) -> Polygon<C> {
+        #[allow(clippy::cast_precision_loss)]
+        let center = Coord {
+            x: self.sw_corner_center.x + (x as C * C::from(self.resolution)) / ARCSEC_PER_DEG,
+            y: self.sw_corner_center.y + (y as C * C::from(self.resolution)) / ARCSEC_PER_DEG,
+        };
+        util::polygon(&center, C::from(self.resolution))
+    }
+}
+
+/// Represents various ways to index into a [`Tile`].
+///
+/// `TileIndex` is an enum that provides different indexing mechanisms
+/// for a tile. Typically, you don’t need to create a `TileIndex`
+/// manually; tile indexing functions are designed to work generically
+/// with any of its variants.
+///
+/// [`Tile`]: crate::Tile
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TileIndex {
+    /// Plain old offset into the flat sample array.
+    Linear(usize),
+    /// Cartesean coordinates, where (0, 0) is the northwest corner.
+    XY((usize, usize)),
+    /// Absolute geographic coordinates.
+    Geo(Coord<C>),
+}
+
+impl From<usize> for TileIndex {
+    /// Converts a `usize` into a `TileIndex::Linear`.
+    #[inline]
+    fn from(other: usize) -> TileIndex {
+        TileIndex::Linear(other)
+    }
+}
+
+impl From<(usize, usize)> for TileIndex {
+    /// Converts a tuple `(usize, usize)` into a `TileIndex::XY`.
+    #[inline]
+    fn from(other: (usize, usize)) -> TileIndex {
+        TileIndex::XY(other)
+    }
+}
+
+impl From<Coord> for TileIndex {
+    /// Converts a `Coord` into a `TileIndex::Geo`.
+    #[inline]
+    fn from(other: Coord<C>) -> TileIndex {
+        TileIndex::Geo(other)
+    }
+}
+
+impl fmt::Debug for Tile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // force lazy evaluation of max and min elevation.
+        let _ = self.max_elevation();
+        let _ = self.min_elevation();
+        f.debug_struct("Tile")
+            .field("sw_corner_center", &self.sw_corner_center)
+            .field("ne_corner_center", &self.ne_corner_center)
+            .field("resolution", &self.resolution)
+            .field("dimensions", &self.dimensions)
+            .field("min_elev", &self.min_elevation)
+            .field("max_elevation", &self.max_elevation)
+            .field(
+                "samples",
+                &match self.samples {
+                    SampleStore::Tombstone => "Tombstone",
+                    SampleStore::InMem(_) => "InMem",
+                    SampleStore::MemMap(_) => "MemMap",
+                },
+            )
+            .finish()
+    }
+}

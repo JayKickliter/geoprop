@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-#[allow(missing_docs)]
+#[allow(missing_docs, clippy::module_name_repetitions)]
 pub enum NasademError {
     #[error("")]
     Io(#[from] std::io::Error),
