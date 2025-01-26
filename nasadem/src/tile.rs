@@ -53,8 +53,8 @@ impl Tile {
 
         #[allow(clippy::cast_precision_loss)]
         let ne_corner_center = Coord {
-            y: sw_corner_center.y + (dimensions.0 as C * C::from(resolution)) / ARCSEC_PER_DEG,
-            x: sw_corner_center.x + (dimensions.1 as C * C::from(resolution)) / ARCSEC_PER_DEG,
+            y: sw_corner_center.y + 1.0,
+            x: sw_corner_center.x + 1.0,
         };
 
         let mut file = BufReader::new(File::open(path)?);
@@ -87,7 +87,7 @@ impl Tile {
 
     /// Returns a Tile using the memory-mapped file as storage.
     pub fn memmap<P: AsRef<Path>>(path: P) -> Result<Self, NasademError> {
-        let (resolution, dimensions @ (cols, rows)) = util::extract_resolution(&path)?;
+        let (resolution, dimensions) = util::extract_resolution(&path)?;
         let sw_corner_center = {
             let Coord { x, y } = util::parse_sw_corner(&path)?;
             Coord {
@@ -98,8 +98,8 @@ impl Tile {
 
         #[allow(clippy::cast_precision_loss)]
         let ne_corner_center = Coord {
-            y: sw_corner_center.y + (cols as C * C::from(resolution)) / ARCSEC_PER_DEG,
-            x: sw_corner_center.x + (rows as C * C::from(resolution)) / ARCSEC_PER_DEG,
+            y: sw_corner_center.y as C + 1.0,
+            x: sw_corner_center.x as C + 1.0,
         };
 
         let samples = {
@@ -132,8 +132,8 @@ impl Tile {
 
         #[allow(clippy::cast_precision_loss)]
         let ne_corner_center = Coord {
-            y: sw_corner_center.y as C + (dimensions.0 as C * C::from(resolution)) / ARCSEC_PER_DEG,
-            x: sw_corner_center.x as C + (dimensions.1 as C * C::from(resolution)) / ARCSEC_PER_DEG,
+            y: sw_corner_center.y as C + 1.0,
+            x: sw_corner_center.x as C + 1.0,
         };
 
         let samples = SampleStore::Tombstone;
