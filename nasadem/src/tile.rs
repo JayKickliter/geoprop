@@ -166,6 +166,10 @@ impl Tile {
     /// Returns the lowest elevation sample in this tile.
     pub fn min_elevation(&self) -> Elev {
         let mut min_elevation = self.min_elevation.load(Ordering::Relaxed);
+        // This block can race (not data-race), but it's fine because
+        // it's unlikely to happen very often if at all, and min elev
+        // is min elev. The worst that can happen is the same value is
+        // stored more than once, but atomically.
         if min_elevation == Elev::MAX {
             min_elevation = self.samples.min();
             self.min_elevation.store(min_elevation, Ordering::SeqCst);
@@ -177,6 +181,10 @@ impl Tile {
     pub fn max_elevation(&self) -> Elev {
         let mut max_elevation = self.max_elevation.load(Ordering::Relaxed);
         if max_elevation == Elev::MAX {
+            // This block can race (not data-race), but it's fine because
+            // it's unlikely to happen very often if at all, and max elev
+            // is max elev. The worst that can happen is the same value is
+            // stored more than once, but atomically.
             max_elevation = self.samples.max();
             self.max_elevation.store(max_elevation, Ordering::SeqCst);
         };
