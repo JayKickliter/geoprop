@@ -384,26 +384,20 @@ impl Tile {
 
     pub(crate) fn geo_to_xy(&self, coord: Coord<C>) -> (isize, isize) {
         let c = ARCSEC_PER_DEG / C::from(self.resolution);
-        // TODO: do we need to compensate for cell width. If so, does
-        //       the following accomplish that? It seems to in the
-        //       Mt. Washington test.
-        let sample_center_compensation = 1. / (c * 2.);
-        let cc = sample_center_compensation;
+        let y = (self.sw_corner_center.y + 1.0 - coord.y) * c;
+        let x = (coord.x - self.sw_corner_center.x) * c;
+
         #[allow(clippy::cast_possible_truncation)]
-        let x = ((coord.x - self.sw_corner_center.x + cc) * c) as isize;
-        #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-        let y = self.dimensions.1 as isize
-            - 1
-            - ((coord.y - self.sw_corner_center.y + cc) * c) as isize;
-        (x, y)
+        (x.round() as isize, y.round() as isize)
     }
 
     pub(crate) fn xy_to_geo(&self, (x, y): (usize, usize)) -> Coord<C> {
         let c = ARCSEC_PER_DEG / C::from(self.resolution);
+
         #[allow(clippy::cast_precision_loss)]
-        let lon = (x as C / c) + self.sw_corner_center.x;
+        let lat = self.sw_corner_center.y + 1.0 - (y as C) / c;
         #[allow(clippy::cast_precision_loss)]
-        let lat = ((self.dimensions.1 - y - 1) as C / c) + self.sw_corner_center.y;
+        let lon = self.sw_corner_center.x + (x as C) / c;
         Coord { x: lon, y: lat }
     }
 
