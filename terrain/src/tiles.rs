@@ -94,7 +94,9 @@ impl Tiles {
 
     fn load_tombstone(sw_corner: Coord<i16>) -> Tile {
         debug!("loading tombstone in lieu of missing tile for {sw_corner:?}");
-        Tile::tombstone(sw_corner)
+        // TODO: remove hardcoded resolution to ensure all tiles are
+        //       equal resolution?
+        Tile::tombstone(sw_corner, 3)
     }
 }
 

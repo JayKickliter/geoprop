@@ -2,7 +2,7 @@ use crate::{util, Elev};
 use memmap2::Mmap;
 
 pub(crate) enum SampleStore {
-    Tombstone,
+    Tombstone(usize),
     InMem(Box<[Elev]>),
     MemMap(Mmap),
 }
@@ -10,7 +10,13 @@ pub(crate) enum SampleStore {
 impl SampleStore {
     pub(crate) fn get_linear_unchecked(&self, index: usize) -> Elev {
         match self {
-            Self::Tombstone => 0,
+            Self::Tombstone(size) => {
+                assert!(
+                    index < *size,
+                    "index {index} exceeds tombstone's virtual size {size}"
+                );
+                0
+            }
             Self::InMem(samples) => samples[index],
             Self::MemMap(raw) => {
                 let start = index * size_of::<Elev>();
@@ -24,7 +30,7 @@ impl SampleStore {
     /// Returns the lowest elevation sample in this data.
     pub(crate) fn min(&self) -> Elev {
         match self {
-            Self::Tombstone => 0,
+            Self::Tombstone(_) => 0,
             Self::InMem(samples) => samples.iter().min().copied().unwrap(),
             Self::MemMap(raw) => (*raw)
                 .chunks_exact(2)
@@ -37,7 +43,7 @@ impl SampleStore {
     /// Returns the highest elevation sample in this data.
     pub(crate) fn max(&self) -> Elev {
         match self {
-            Self::Tombstone => 0,
+            Self::Tombstone(_) => 0,
             Self::InMem(samples) => samples.iter().max().copied().unwrap(),
             Self::MemMap(raw) => (*raw)
                 .chunks_exact(2)

@@ -122,13 +122,19 @@ impl Tile {
         })
     }
 
-    pub fn tombstone(sw_corner: Coord<Elev>) -> Self {
+    pub fn tombstone(sw_corner: Coord<i16>, arcsec_per_sample: u8) -> Self {
+        assert!(
+            arcsec_per_sample == 1 || arcsec_per_sample == 3,
+            "only resolution of 1 or 3 arcsecs per sample"
+        );
         let sw_corner_center = Coord {
             x: C::from(sw_corner.x),
             y: C::from(sw_corner.y),
         };
 
-        let (resolution, dimensions) = (3, (1201, 1201));
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let dim = ARCSEC_PER_DEG as usize / arcsec_per_sample as usize + 1;
+        let (resolution, dimensions) = (arcsec_per_sample, (dim, dim));
 
         #[allow(clippy::cast_precision_loss)]
         let ne_corner_center = Coord {
@@ -136,9 +142,9 @@ impl Tile {
             x: sw_corner_center.x as C + 1.0,
         };
 
-        let samples = SampleStore::Tombstone;
-        let min_elevation = Elev::MAX.into();
-        let max_elevation = Elev::MAX.into();
+        let samples = SampleStore::Tombstone(dim * dim);
+        let min_elevation = 0.into();
+        let max_elevation = 0.into();
 
         Self {
             sw_corner_center,
@@ -486,7 +492,7 @@ impl fmt::Debug for Tile {
             .field(
                 "samples",
                 &match self.samples {
-                    SampleStore::Tombstone => "Tombstone",
+                    SampleStore::Tombstone(_) => "Tombstone",
                     SampleStore::InMem(_) => "InMem",
                     SampleStore::MemMap(_) => "MemMap",
                 },
