@@ -136,7 +136,7 @@ fn walk_tile(c: &mut Criterion, dim: usize, title: &str, tile: &Tile) {
         group.bench_with_input(bench_title, &(&tile, path), |b, (t, p)| {
             b.iter(|| {
                 for &(x, y) in p {
-                    let elev = t.get_xy_unchecked((x, y));
+                    let elev = t.get_unchecked((x, y));
                     black_box(elev);
                 }
             });
