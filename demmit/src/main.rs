@@ -1,23 +1,29 @@
 use camino::Utf8PathBuf;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use nasadem::Tile;
 
-/// A NASADEM '.hgt' file multitool.
-#[derive(Debug, Parser)]
+type AnyRes = anyhow::Result<()>;
+
+/// A NASADEM/SRTM '.hgt' file multitool.
+#[derive(Clone, Parser)]
 struct Cli {
     #[command(subcommand)]
     command: SubCmd,
 }
 
-#[derive(Clone, Debug, Subcommand)]
+#[derive(Clone, Subcommand)]
 enum SubCmd {
-    /// Render NASADEM '.hgt' file as an image.
+    /// Render a NASADEM/SRTM '.hgt' file as an image.
     Render(RenderArgs),
 }
 
-#[derive(Args, Clone, Debug)]
+#[derive(Clone, Args)]
 struct RenderArgs {
-    /// Source NASADEM hgt file.
+    /// Bit depth
+    #[clap(long, short)]
+    depth: Option<BitDepth>,
+
+    /// Source NASADEM/SRTM hgt file.
     src: Utf8PathBuf,
 
     /// Optional output file name.
@@ -29,8 +35,14 @@ struct RenderArgs {
     dest: Option<Utf8PathBuf>,
 }
 
-fn render(RenderArgs { src, dest }: RenderArgs) {
-    let tile = Tile::load(&src).unwrap();
+#[derive(Clone, Copy, ValueEnum)]
+enum BitDepth {
+    _8,
+    _16,
+}
+
+fn render(RenderArgs { depth, src, dest }: RenderArgs) -> AnyRes {
+    let tile = Tile::load(&src)?;
     let out = dest.map_or_else(
         || {
             let mut out = src.clone();
@@ -39,7 +51,7 @@ fn render(RenderArgs { src, dest }: RenderArgs) {
         },
         |mut out| {
             if out.is_dir() {
-                let name = src.file_name().unwrap();
+                let name = src.file_name().expect("we already know src is a file");
                 out.push(name);
                 out.set_extension("png");
             }
@@ -47,17 +59,29 @@ fn render(RenderArgs { src, dest }: RenderArgs) {
         },
     );
 
-    eprintln!("writing to {out:?}");
-    if let Some("png" | "tif" | "tiff") = out.extension() {
-        let img = tile.to_image::<u16>();
-        img.save(out).unwrap();
-    } else {
-        let img = tile.to_image::<u8>();
-        img.save(out).unwrap();
-    }
+    match (depth, out.extension()) {
+        (None | Some(BitDepth::_8), Some("jpg")) => {
+            let img = tile.to_image::<u8>();
+            img.save(out)?;
+        }
+        (None | Some(BitDepth::_16), Some("png" | "tif" | "tiff")) => {
+            let img = tile.to_image::<u16>();
+            img.save(out)?;
+        }
+        (Some(BitDepth::_16), _) => {
+            let img = tile.to_image::<u16>();
+            img.save(out)?;
+        }
+        (_, _) => {
+            let img = tile.to_image::<u8>();
+            img.save(out)?;
+        }
+    };
+
+    Ok(())
 }
 
-fn main() {
+fn main() -> AnyRes {
     let cli = Cli::parse();
     match cli.command {
         SubCmd::Render(args) => render(args),

@@ -1,1 +1,1 @@
-# `demmit`, a NASADEM multitool
+# `demmit`: a NASADEM multitool
