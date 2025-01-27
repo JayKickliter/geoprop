@@ -1,7 +1,5 @@
-// #![deny(missing_docs)]
-
+#![deny(missing_docs)]
 #![cfg_attr(not(doctest), doc = include_str!("../README.md"))]
-
 
 pub use crate::{
     error::NasademError,
