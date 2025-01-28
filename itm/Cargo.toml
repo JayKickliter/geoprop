@@ -2,12 +2,12 @@
 categories   = ["science"]
 description  = "A wrapper around NTIA's Irregular Terrain Model"
 edition      = "2021"
-homepage     = "https://github.com/jaykickliter/geoprof"
+homepage     = "https://github.com/jaykickliter/geoprop"
 keywords     = ["rf", "radio", "modeling", "ntia"]
 license-file = "LICENSE.md"
 name         = "itm"
 readme       = "README.md"
-repository   = "https://github.com/jaykickliter/geoprof"
+repository   = "https://github.com/jaykickliter/geoprop"
 version      = "0.1.0"
 
 [features]

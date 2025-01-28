@@ -1,13 +1,5 @@
-// #![deny(missing_docs)]
-
-//! NASADEM elevation (`.hgt`) file format.
-//!
-//! # References
-//!
-//! 1. [30-Meter SRTM Tile Downloader](https://dwtkns.com/srtm30m)
-//! 1. [HGT file layout](https://www.researchgate.net/profile/Pierre-Boulanger-4/publication/228924813/figure/fig8/AS:300852653903880@1448740270695/Description-of-a-HGT-file-structure-The-name-file-in-this-case-is-N20W100HGT.png)
-//! 1. [Archive Team](http://fileformats.archiveteam.org/index.php?title=HGT&oldid=17250)
-//! 1. [SRTM Collection User Guide](https://lpdaac.usgs.gov/documents/179/SRTM_User_Guide_V3.pdf)
+#![deny(missing_docs)]
+#![cfg_attr(not(doctest), doc = include_str!("../README.md"))]
 
 pub use crate::{
     error::NasademError,
