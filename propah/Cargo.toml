@@ -2,12 +2,12 @@
 categories  = ["science"]
 description = "Radio frequency propogation modeling"
 edition     = "2021"
-homepage    = "https://github.com/jaykickliter/geoprof"
+homepage    = "https://github.com/jaykickliter/geoprop"
 keywords    = ["gis", "geo", "geography", "geospatial"]
 license     = "MIT OR Apache-2.0"
 name        = "propah"
 readme      = "README.md"
-repository  = "https://github.com/jaykickliter/geoprof"
+repository  = "https://github.com/jaykickliter/geoprop"
 version     = "0.1.0"
 
 [dependencies]
