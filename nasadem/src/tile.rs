@@ -12,6 +12,7 @@ use std::{
     sync::atomic::{AtomicI16, Ordering},
 };
 
+/// A NASADEM tile.
 pub struct Tile {
     /// Southwest corner of the tile.
     ///
@@ -122,6 +123,10 @@ impl Tile {
         })
     }
 
+    /// Returns a virtual tile that always with no elevation.
+    ///
+    /// A tombstone is handy when dealing with voids in SRTM coverage,
+    /// e.g. oceans.
     pub fn tombstone(sw_corner: Coord<i16>, arcsec_per_sample: u8) -> Self {
         assert!(
             arcsec_per_sample == 1 || arcsec_per_sample == 3,

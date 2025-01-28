@@ -14,25 +14,25 @@ pub struct Sample<'a> {
 
 #[allow(clippy::must_use_candidate)]
 impl<'a> Sample<'a> {
-    /// Sample elevation in meters.
+    /// Returns sample elevation in meters.
     #[inline]
     pub fn elevation(&self) -> Elev {
         self.tile.samples.get_linear_unchecked(self.index)
     }
 
-    /// A polygot of this samples geographic bounding box.
+    /// Returns a polygon of this samples geographic bounding box.
     #[inline]
     pub fn polygon(&self) -> Polygon {
         self.tile.xy_to_polygon(self.xy())
     }
 
-    /// This sample's offset in the source tile's memory.
+    /// Returns the sample's offset in the tile's memory.
     #[inline]
     pub fn index(&self) -> usize {
         self.index
     }
 
-    /// This sample's logical row/col location in source tile.
+    /// Returns the sample's logical row/col location in source tile.
     ///
     /// Note that (0, 0) is the NW corner.
     #[inline]
@@ -40,6 +40,7 @@ impl<'a> Sample<'a> {
         self.tile.linear_to_xy(self.index)
     }
 
+    /// Returns the geographic center of the sample.
     #[inline]
     pub fn geo(&self) -> Coord<C> {
         self.tile.xy_to_geo(self.xy())
